@@ -67,9 +67,13 @@ variable "public_subnet" {
 }
 ```
 
+[network.tf](https://github.com/stepynin-georgy/hw_cloud_1/blob/main/network.tf)
+
+[variables.tf](https://github.com/stepynin-georgy/hw_cloud_1/blob/main/variables.tf)
+
 3. Создать в этой подсети NAT-инстанс, присвоив ему адрес 192.168.10.254. В качестве image_id использовать fd80mrhj8fl2oe87o4e1.
 
-<details><summary>nat.tf.</summary>
+<details><summary>Листинг nat.tf.</summary>
  
 ```
 variable "yandex_compute_instance_nat" {
@@ -141,6 +145,289 @@ resource "yandex_compute_instance" "nat" {
 ```
 
 </details>
+
+[nat.tf](https://github.com/stepynin-georgy/hw_cloud_1/blob/main/nat.tf)
+
+4. Создаю в публичной подсети виртуальную машину с публичным IP.
+
+<details><summary>Листинг public.tf</summary>
+
+```
+variable "yandex_compute_instance_public" {
+  type        = list(object({
+    vm_name = string
+    cores = number
+    memory = number
+    core_fraction = number
+    hostname = string
+    platform_id = string
+  }))
+
+  default = [{
+      vm_name = "public"
+      cores         = 2
+      memory        = 2
+      core_fraction = 5
+      hostname = "public"
+      platform_id = "standard-v1"
+    }]
+}
+
+variable "boot_disk_public" {
+  type        = list(object({
+    size = number
+    type = string
+    image_id = string
+    }))
+    default = [ {
+    size = 10
+    type = "network-hdd"
+    image_id = "fd8pbf0hl06ks8s3scqk"
+  }]
+}
+
+resource "yandex_compute_instance" "public" {
+  name        = var.yandex_compute_instance_public[0].vm_name
+  platform_id = var.yandex_compute_instance_public[0].platform_id
+  hostname = var.yandex_compute_instance_public[0].hostname
+
+  resources {
+    cores         = var.yandex_compute_instance_public[0].cores
+    memory        = var.yandex_compute_instance_public[0].memory
+    core_fraction = var.yandex_compute_instance_public[0].core_fraction
+  }
+
+  boot_disk {
+    initialize_params {
+      image_id = var.boot_disk_public[0].image_id
+      type     = var.boot_disk_public[0].type
+      size     = var.boot_disk_public[0].size
+    }
+  }
+
+  metadata = {
+    ssh-keys = "ubuntu:${local.ssh-keys}"
+    serial-port-enable = "1"
+  }
+
+  network_interface {
+    subnet_id  = yandex_vpc_subnet.public.id
+    nat        = true
+  }
+  scheduling_policy {
+    preemptible = true
+  }
+}
+```
+
+</details>
+
+[public.tf](https://github.com/stepynin-georgy/hw_cloud_1/blob/main/public.tf)
+
+Проверка доступа к интернету с виртуальной машины:
+
+```
+[root@localhost hw1]# ssh ubuntu@89.169.139.196
+.
+.
+.
+ubuntu@public:~$ ping 8.8.8.8
+PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=58 time=24.9 ms
+64 bytes from 8.8.8.8: icmp_seq=2 ttl=58 time=21.7 ms
+64 bytes from 8.8.8.8: icmp_seq=3 ttl=58 time=63.4 ms
+64 bytes from 8.8.8.8: icmp_seq=4 ttl=58 time=46.5 ms
+^C
+--- 8.8.8.8 ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3068ms
+rtt min/avg/max/mdev = 21.727/39.131/63.424/16.951 ms
+```
+
+5. Создать в VPC subnet с названием private, сетью 192.168.20.0/24.
+
+```
+resource "yandex_vpc_subnet" "private" {
+  name           = var.private_subnet
+  zone           = var.default_zone
+  network_id     = yandex_vpc_network.dvl.id
+  v4_cidr_blocks = var.private_cidr
+  route_table_id = yandex_vpc_route_table.private-route.id
+}
+
+variable "private_cidr" {
+  type        = list(string)
+  default     = ["192.168.20.0/24"]
+  description = "https://cloud.yandex.ru/docs/vpc/operations/subnet-create"
+}
+
+variable "private_subnet" {
+  type        = string
+  default     = "private"
+  description = "subnet name"
+}
+```
+
+[network.tf](https://github.com/stepynin-georgy/hw_cloud_1/blob/main/network.tf)
+
+[variables.tf](https://github.com/stepynin-georgy/hw_cloud_1/blob/main/variables.tf)
+
+6. Создать route table. Добавить статический маршрут, направляющий весь исходящий трафик private сети в NAT-инстанс.
+
+```
+resource "yandex_vpc_route_table" "private-route" {
+  name       = "private-route"
+  network_id = yandex_vpc_network.dvl.id
+  static_route {
+    destination_prefix = "0.0.0.0/0"
+    next_hop_address   = "192.168.10.254"
+  }
+}
+```
+
+7. Создать в этой приватной подсети виртуалку с внутренним IP, подключиться к ней через виртуалку, созданную ранее, и убедиться, что есть доступ к интернету.
+
+<details><summary>Листинг private.tf</summary>
+
+```
+variable "yandex_compute_instance_private" {
+  type        = list(object({
+    vm_name = string
+    cores = number
+    memory = number
+    core_fraction = number
+    hostname = string
+    platform_id = string
+  }))
+
+  default = [{
+      vm_name = "private"
+      cores         = 2
+      memory        = 2
+      core_fraction = 5
+      hostname = "private"
+      platform_id = "standard-v1"
+    }]
+}
+
+variable "boot_disk_private" {
+  type        = list(object({
+    size = number
+    type = string
+    image_id = string
+    }))
+    default = [ {
+    size = 10
+    type = "network-hdd"
+    image_id = "fd8pbf0hl06ks8s3scqk"
+  }]
+}
+
+resource "yandex_compute_instance" "private" {
+  name        = var.yandex_compute_instance_private[0].vm_name
+  platform_id = var.yandex_compute_instance_private[0].platform_id
+  hostname = var.yandex_compute_instance_private[0].hostname
+
+  resources {
+    cores         = var.yandex_compute_instance_private[0].cores
+    memory        = var.yandex_compute_instance_private[0].memory
+    core_fraction = var.yandex_compute_instance_private[0].core_fraction
+  }
+
+  boot_disk {
+    initialize_params {
+      image_id = var.boot_disk_private[0].image_id
+      type     = var.boot_disk_private[0].type
+      size     = var.boot_disk_private[0].size
+    }
+  }
+
+  metadata = {
+    ssh-keys = "ubuntu:${local.ssh-keys}"
+    serial-port-enable = "1"
+  }
+
+  network_interface {
+    subnet_id  = yandex_vpc_subnet.private.id
+    nat        = false
+  }
+  scheduling_policy {
+    preemptible = true
+  }
+}
+```
+
+<details>
+
+[private.tf](https://github.com/stepynin-georgy/hw_cloud_1/blob/main/private.tf)
+
+Проверка доступности интернета на приватной виртуальной машине и работы NAT-инстанса:
+
+```
+[root@localhost hw1]# scp ~/.ssh/id_ed25519 ubuntu@89.169.139.196:/home/ubuntu/.ssh
+id_ed25519                                                                                                 100%  419    26.0KB/s   00:00
+[root@localhost hw1]# ssh ubuntu@89.169.139.196
+.
+.
+.
+ubuntu@public:~$ ssh ubuntu@192.168.20.18
+.
+.
+.
+ubuntu@private:~$ ping 8.8.8.8
+PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=54 time=21.0 ms
+64 bytes from 8.8.8.8: icmp_seq=2 ttl=54 time=19.7 ms
+64 bytes from 8.8.8.8: icmp_seq=3 ttl=54 time=19.7 ms
+64 bytes from 8.8.8.8: icmp_seq=4 ttl=54 time=28.4 ms
+^C
+--- 8.8.8.8 ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3005ms
+rtt min/avg/max/mdev = 19.676/22.210/28.432/3.632 ms
+ubuntu@private:~$
+```
+
+Отключим виртуальную машину с NAT-инстансом и снова проверим доступ в интернет:
+
+![изображение](https://github.com/stepynin-georgy/hw_cloud_1/blob/main/img/Screenshot_3.png)
+
+```
+ubuntu@private:~$ ping 8.8.8.8
+PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+^C
+--- 8.8.8.8 ping statistics ---
+4 packets transmitted, 0 received, 100% packet loss, time 3055ms
+
+ubuntu@private:~$
+```
+
+Интернет на приватной виртуальной машине перестал работать после отключения NAT-инстанса, следовательно статический маршрут, направляющий весь исходящий трафик private сети в NAT-инстанс был настроен корректно.
+
+Output вывод Terraform выглядит следующим образом:
+
+```
+[root@localhost hw1]# terraform output
+nat_instance_info = {
+  "ip_external" = "84.201.172.242"
+  "ip_internal" = "192.168.10.254"
+  "name" = "nat"
+  "network" = "dvl"
+  "subnet" = "public"
+}
+private_vm_info = {
+  "ip_external" = ""
+  "ip_internal" = "192.168.20.18"
+  "name" = "private"
+  "network" = "dvl"
+  "subnet" = "private"
+}
+public_vm_info = {
+  "ip_external" = "89.169.139.196"
+  "ip_internal" = "192.168.10.3"
+  "name" = "public"
+  "network" = "dvl"
+  "subnet" = "public"
+}
+```
 
 ---
 ### Задание 2. AWS* (задание со звёздочкой)
