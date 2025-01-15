@@ -70,6 +70,7 @@ variable "public_subnet" {
 3. Создать в этой подсети NAT-инстанс, присвоив ему адрес 192.168.10.254. В качестве image_id использовать fd80mrhj8fl2oe87o4e1.
 
 <details><summary>nat.tf.</summary>
+ 
 ```
 variable "yandex_compute_instance_nat" {
   type        = list(object({
@@ -138,6 +139,7 @@ resource "yandex_compute_instance" "nat" {
   }
 }
 ```
+
 <details>
 
 ---
