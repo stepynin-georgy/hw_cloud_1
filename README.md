@@ -356,7 +356,7 @@ resource "yandex_compute_instance" "private" {
 }
 ```
 
-<details>
+</details>
 
 [private.tf](https://github.com/stepynin-georgy/hw_cloud_1/blob/main/private.tf)
 
